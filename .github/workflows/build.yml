@@ -1,0 +1,116 @@
+name: Build chrome-devtools-frontend
+
+on:
+  push:
+    branches:
+      - master
+  workflow_dispatch:
+    inputs:
+      devtools_commit:
+        description: "chrome-devtools-frontend commit/ref to build"
+        required: false
+        default: "83a5dca"
+
+env:
+  DEFAULT_DEVTOOLS_COMMIT: "83a5dca"
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        os: [ubuntu-latest]
+        variant: [Release]
+    runs-on: ${{ matrix.os }}
+    name: devtools-frontend ${{ matrix.variant }} on ${{ matrix.os }}
+    steps:
+      - name: Resolve pinned commit
+        run: |
+          PIN="${{ github.event.inputs.devtools_commit }}"
+          if [ -z "$PIN" ]; then PIN="$DEFAULT_DEVTOOLS_COMMIT"; fi
+          echo "DEVTOOLS_COMMIT=$PIN" >> $GITHUB_ENV
+
+      - name: Generate release name
+        run: echo "RELEASE_NAME=$(uuidgen)" >> $GITHUB_ENV
+
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt -y update
+          sudo apt install -y \
+            build-essential curl git python3 python-is-python3 \
+            pkg-config lsb-release sudo file zip unzip xz-utils \
+            ca-certificates
+
+      - name: Install depot_tools
+        run: |
+          git clone --depth=1 https://chromium.googlesource.com/chromium/tools/depot_tools.git "$HOME/depot_tools"
+          echo "$HOME/depot_tools" >> $GITHUB_PATH
+
+      - name: Fetch chrome-devtools-frontend
+        shell: bash
+        run: |
+          mkdir -p devtools
+          cd devtools
+          fetch --no-history devtools-frontend
+          cd devtools-frontend
+          git fetch --depth=1 origin "$DEVTOOLS_COMMIT"
+          git checkout "$DEVTOOLS_COMMIT"
+          gclient sync -D --revision "$DEVTOOLS_COMMIT"
+
+      - name: Apply patches
+        shell: bash
+        run: |
+          shopt -s nullglob
+          patches=("$GITHUB_WORKSPACE"/patches/*.patch)
+          if [ ${#patches[@]} -eq 0 ]; then
+            echo "No patches to apply."
+            exit 0
+          fi
+          cd devtools/devtools-frontend
+          for p in "${patches[@]}"; do
+            echo "Applying $p"
+            git apply --whitespace=nowarn "$p"
+          done
+
+      - name: Configure (gn)
+        shell: bash
+        run: |
+          cd devtools/devtools-frontend
+          gn gen out/Default --args='is_debug=false'
+
+      - name: Build (autoninja)
+        shell: bash
+        run: |
+          cd devtools/devtools-frontend
+          autoninja -C out/Default
+
+      - name: Package
+        shell: bash
+        run: |
+          mkdir -p Binaries
+          SHORT_SHA=$(cd devtools/devtools-frontend && git rev-parse --short HEAD)
+          echo "DEVTOOLS_SHA=$SHORT_SHA" >> $GITHUB_ENV
+          # The built front-end ends up under out/Default/gen/front_end
+          cp -r devtools/devtools-frontend/out/Default/gen/front_end Binaries/front_end
+          (cd Binaries && 7z a "../devtools-frontend-${SHORT_SHA}.zip" front_end)
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: devtools-frontend-${{ env.DEVTOOLS_SHA }}-${{ matrix.variant }}
+          path: devtools-frontend-${{ env.DEVTOOLS_SHA }}.zip
+
+      - name: Make a release
+        uses: ncipollo/release-action@v1
+        with:
+          name: "chrome-devtools-frontend ${{ env.DEVTOOLS_SHA }} (${{ env.RELEASE_NAME }})"
+          body: |
+            chrome-devtools-frontend build.
+            Upstream commit: ${{ env.DEVTOOLS_COMMIT }} (${{ env.DEVTOOLS_SHA }})
+          commit: ${{ github.ref_name }}
+          tag: ${{ env.RELEASE_NAME }}
+          removeArtifacts: true
+          artifacts: "devtools-frontend-${{ env.DEVTOOLS_SHA }}.zip"
+          token: ${{ secrets.GITHUB_TOKEN }}
