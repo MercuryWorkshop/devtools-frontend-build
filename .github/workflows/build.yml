@@ -9,10 +9,10 @@ on:
       devtools_commit:
         description: "chrome-devtools-frontend commit/ref to build"
         required: false
-        default: "83a5dca"
+        default: "83a5dca01602267224ac064edf251a209e92df66"
 
 env:
-  DEFAULT_DEVTOOLS_COMMIT: "83a5dca"
+  DEFAULT_DEVTOOLS_COMMIT: "83a5dca01602267224ac064edf251a209e92df66"
 
 jobs:
   build:
