@@ -92,15 +92,14 @@ jobs:
           mkdir -p Binaries
           SHORT_SHA=$(cd devtools/devtools-frontend && git rev-parse --short HEAD)
           echo "DEVTOOLS_SHA=$SHORT_SHA" >> $GITHUB_ENV
-          # The built front-end ends up under out/Default/gen/front_end
           cp -r devtools/devtools-frontend/out/Default/gen/front_end Binaries/front_end
-          (cd Binaries && 7z a "../devtools-frontend-${SHORT_SHA}.zip" front_end)
+          (cd Binaries && 7z a ../devtools-frontend.zip front_end)
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: devtools-frontend-${{ env.DEVTOOLS_SHA }}-${{ matrix.variant }}
-          path: devtools-frontend-${{ env.DEVTOOLS_SHA }}.zip
+          name: devtools-frontend-${{ matrix.variant }}
+          path: devtools-frontend.zip
 
       - name: Make a release
         uses: ncipollo/release-action@v1
@@ -112,5 +111,5 @@ jobs:
           commit: ${{ github.ref_name }}
           tag: ${{ env.RELEASE_NAME }}
           removeArtifacts: true
-          artifacts: "devtools-frontend-${{ env.DEVTOOLS_SHA }}.zip"
+          artifacts: "devtools-frontend.zip"
           token: ${{ secrets.GITHUB_TOKEN }}
